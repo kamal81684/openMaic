@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
 
+import { authOptions } from "../../../lib/auth";
+import { getDecksCollection } from "../../../lib/deck-store";
 import type { GeneratedSlide, SlideKind } from "../../../lib/slide-generator";
 
 const allowedKinds: SlideKind[] = ["cover", "agenda", "content", "takeaway", "closing"];
@@ -54,8 +57,6 @@ export async function POST(req: Request) {
   if (!apiKey) {
     return NextResponse.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
   }
-
-    console.log("API Key:", apiKey.slice(0, 10));
 
   const prompt = `You are an expert presentation designer.
 Generate exactly ${slideCount} slides.
@@ -125,6 +126,27 @@ Return ONLY valid JSON matching this schema:
   const slides = Array.isArray(parsed.slides)
     ? parsed.slides.map((slide, index) => normalizeSlide(slide, index + 1))
     : [];
+
+  const session = await getServerSession(authOptions);
+
+  if (session?.user?.email && session.user.name) {
+    const decksCollection = await getDecksCollection();
+
+    const result = await decksCollection.insertOne({
+      userId: session.user.email,
+      userName: session.user.name,
+      userEmail: session.user.email,
+      topic,
+      slideCount,
+      audience,
+      tone,
+      slides,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return NextResponse.json({ slides, deckId: result.insertedId.toString() });
+  }
 
   return NextResponse.json({ slides });
 }
