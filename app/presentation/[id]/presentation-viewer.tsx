@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { GeneratedSlide } from "../../../lib/slide-generator";
+import { useNarration } from "../../../hooks/use-narration";
+import NarrationPlayer from "../../../components/narration/narration-player";
 
 type Props = {
   deckId: string;
@@ -15,6 +17,13 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
   const router = useRouter();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const isAutoAdvancing = useRef(false);
+
+  const narration = useNarration(deckId);
+
+  useEffect(() => {
+    narration.checkExisting();
+  }, []);
 
   const goNext = useCallback(() => {
     setCurrentSlide((prev) => Math.min(prev + 1, slides.length - 1));
@@ -25,6 +34,7 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
   }, []);
 
   const goToSlide = useCallback((index: number) => {
+    isAutoAdvancing.current = false;
     setCurrentSlide(index);
   }, []);
 
@@ -37,9 +47,30 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
     router.push("/dashboard");
   }
 
+  function handleNarrationSlideChange(slideIndex: number) {
+    isAutoAdvancing.current = true;
+    const idx = slides.findIndex((s) => s.index === slideIndex);
+    if (idx !== -1) {
+      setCurrentSlide(idx);
+    }
+  }
+
+  async function handleExplainWithAI() {
+    await narration.generateNarration();
+    if (narration.script) {
+      await narration.generateAudio();
+    }
+  }
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === " ") {
+      if (narration.status === "ready" && (narration.hasAudio || (narration.script && narration.audioSegments.length > 0))) {
+        if (event.key === " ") {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
         event.preventDefault();
         if (currentSlide < slides.length - 1) {
           goNext();
@@ -58,7 +89,7 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSlide, slides.length]);
+  }, [currentSlide, slides.length, narration.status, narration.hasAudio, narration.audioSegments.length, narration.script, goNext, goPrev]);
 
   const slide = slides[currentSlide];
 
@@ -72,23 +103,67 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-950">
-      <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={handleBack}
-            disabled={isFinalizing}
-            className="rounded-full border border-white/20 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/10 disabled:opacity-50"
-          >
-            {isFinalizing ? "Saving PDF..." : "Back to Dashboard"}
-          </button>
-          <span className="text-sm text-slate-500">{topic}</span>
+      <header className="flex flex-col border-b border-white/10">
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={isFinalizing}
+              className="rounded-full border border-white/20 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/10 disabled:opacity-50"
+            >
+              {isFinalizing ? "Saving PDF..." : "Back to Dashboard"}
+            </button>
+            <span className="text-sm text-slate-500">{topic}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {narration.status === "idle" && (
+              <button
+                type="button"
+                onClick={handleExplainWithAI}
+                className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-2 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-400"
+              >
+                Explain with AI
+              </button>
+            )}
+            {narration.status === "generating" && (
+              <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2">
+                <svg className="h-4 w-4 animate-spin text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-sm text-amber-300">Generating narration...</span>
+              </div>
+            )}
+            {narration.status === "error" && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-red-400">{narration.error || "Generation failed"}</span>
+                <button
+                  type="button"
+                  onClick={handleExplainWithAI}
+                  className="rounded-full border border-red-500/30 px-3 py-1.5 text-xs text-red-400 transition hover:bg-red-500/10"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            <span className="text-sm text-slate-400">
+              {currentSlide + 1} / {slides.length}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-slate-400">
-            {currentSlide + 1} / {slides.length}
-          </span>
-        </div>
+        {narration.status === "ready" && narration.script && (
+          <div className="px-6 pb-3">
+            <NarrationPlayer
+              script={narration.script}
+              audioSegments={narration.audioSegments}
+              currentSlideIndex={currentSlide}
+              slides={slides.map((s) => ({ index: s.index }))}
+              onSlideChange={handleNarrationSlideChange}
+              onReset={narration.reset}
+            />
+          </div>
+        )}
       </header>
 
       <main className="flex flex-1 items-center justify-center p-8">

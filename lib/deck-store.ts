@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 
 import { mongoClientPromise } from "./mongodb";
 import type { GeneratedSlide, GenerateDeckInput } from "./slide-generator";
+import type { NarrationSegment } from "./narration";
 
 export type StoredDeck = GenerateDeckInput & {
   _id?: ObjectId;
@@ -13,6 +14,16 @@ export type StoredDeck = GenerateDeckInput & {
   updatedAt: Date;
   pdfGenerated?: boolean;
   pdfGeneratedAt?: Date;
+  narration?: {
+    totalDuration: number;
+    script: NarrationSegment[];
+    createdAt: Date;
+  };
+  audioData?: {
+    slideIndex: number;
+    mimeType: string;
+    data: string;
+  }[];
 };
 
 export type DeckSummary = {
@@ -26,6 +37,7 @@ export type DeckSummary = {
   updatedAt: string;
   pdfGenerated?: boolean;
   pdfGeneratedAt?: string | null;
+  hasNarration?: boolean;
 };
 
 export async function getDecksCollection() {
@@ -45,5 +57,6 @@ export function toDeckSummary(deck: StoredDeck): DeckSummary {
     updatedAt: deck.updatedAt.toISOString(),
     pdfGenerated: deck.pdfGenerated,
     pdfGeneratedAt: deck.pdfGeneratedAt?.toISOString() ?? null,
+    hasNarration: !!deck.narration,
   };
 }
