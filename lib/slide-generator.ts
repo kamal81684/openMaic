@@ -16,7 +16,7 @@ export type GenerateDeckInput = {
   tone: string;
 };
 
-export async function generateDeck(input: GenerateDeckInput): Promise<{ slides: GeneratedSlide[] }> {
+export async function generateDeck(input: GenerateDeckInput): Promise<{ slides: GeneratedSlide[]; deckId?: string }> {
   const response = await fetch("/api/generate", {
     method: "POST",
     headers: {

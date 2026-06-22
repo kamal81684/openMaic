@@ -88,12 +88,20 @@ export default async function DashboardPage() {
                           {deck.audience} · {deck.slideCount} slides · {new Date(deck.createdAt).toLocaleString()}
                         </p>
                       </div>
-                      <Link
-                        href={`/api/decks/${deck.id}/pdf`}
-                        className="rounded-full border border-white/10 bg-white px-3 py-2 text-xs font-semibold text-slate-900 transition hover:bg-slate-100"
-                      >
-                        Download PDF
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/presentation/${deck.id}`}
+                          className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+                        >
+                          View
+                        </Link>
+                        <Link
+                          href={`/api/decks/${deck.id}/pdf`}
+                          className="rounded-full border border-white/10 bg-white px-3 py-2 text-xs font-semibold text-slate-900 transition hover:bg-slate-100"
+                        >
+                          Download PDF
+                        </Link>
+                      </div>
                     </div>
                   </article>
                 ))

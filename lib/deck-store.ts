@@ -4,13 +4,15 @@ import { mongoClientPromise } from "./mongodb";
 import type { GeneratedSlide, GenerateDeckInput } from "./slide-generator";
 
 export type StoredDeck = GenerateDeckInput & {
-  _id: ObjectId;
+  _id?: ObjectId;
   userId: string;
   userName: string;
   userEmail: string;
   slides: GeneratedSlide[];
   createdAt: Date;
   updatedAt: Date;
+  pdfGenerated?: boolean;
+  pdfGeneratedAt?: Date;
 };
 
 export type DeckSummary = {
@@ -22,6 +24,8 @@ export type DeckSummary = {
   slides: GeneratedSlide[];
   createdAt: string;
   updatedAt: string;
+  pdfGenerated?: boolean;
+  pdfGeneratedAt?: string | null;
 };
 
 export async function getDecksCollection() {
@@ -31,7 +35,7 @@ export async function getDecksCollection() {
 
 export function toDeckSummary(deck: StoredDeck): DeckSummary {
   return {
-    id: deck._id.toString(),
+    id: deck._id!.toString(),
     topic: deck.topic,
     slideCount: deck.slideCount,
     audience: deck.audience,
@@ -39,5 +43,7 @@ export function toDeckSummary(deck: StoredDeck): DeckSummary {
     slides: deck.slides,
     createdAt: deck.createdAt.toISOString(),
     updatedAt: deck.updatedAt.toISOString(),
+    pdfGenerated: deck.pdfGenerated,
+    pdfGeneratedAt: deck.pdfGeneratedAt?.toISOString() ?? null,
   };
 }

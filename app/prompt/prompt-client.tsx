@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useMemo, useState } from "react";
 
@@ -27,6 +28,7 @@ function slideDeckToMarkdown(slides: GeneratedSlide[]) {
 }
 
 export default function PromptClient() {
+  const router = useRouter();
   const [topic, setTopic] = useState("AI slide deck for a product launch");
   const [slideCount, setSlideCount] = useState(6);
   const [audience, setAudience] = useState("product team");
@@ -45,6 +47,9 @@ export default function PromptClient() {
     try {
       const response = await generateDeck(input);
       setSlides(response.slides);
+      if (response.deckId) {
+        router.push(`/presentation/${response.deckId}`);
+      }
     } catch (error) {
       console.error(error);
       setSlides([]);
