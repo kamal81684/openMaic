@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 
 import { authOptions } from "../../lib/auth";
+import { isAdminEmail } from "../../lib/admin";
 import { getDecksCollection, toDeckSummary } from "../../lib/deck-store";
 
 import SignOutButton from "./sign-out-button";
@@ -22,6 +23,7 @@ export default async function DashboardPage() {
     .toArray();
 
   const deckSummaries = decks.map(toDeckSummary);
+  const isAdmin = isAdminEmail(session.user.email);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.24),_transparent_32%),radial-gradient(circle_at_80%_20%,_rgba(14,165,233,0.18),_transparent_28%),linear-gradient(180deg,_#fffaf1_0%,_#f8fafc_100%)] text-slate-950">
@@ -41,6 +43,14 @@ export default async function DashboardPage() {
             >
               Generate slide
             </Link>
+            {isAdmin ? (
+              <Link
+                href="/admin"
+                className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                Admin
+              </Link>
+            ) : null}
             <SignOutButton />
           </div>
         </section>
