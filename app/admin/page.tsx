@@ -5,8 +5,10 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../lib/auth";
 import { isAdminEmail } from "../../lib/admin";
 import { loadTtsSettings, toTtsSettingsView, TTS_PROVIDERS } from "../../lib/tts-settings";
+import { getAllDecksForAdmin } from "../../lib/deck-store";
 
 import AdminClient from "./admin-client";
+import DecksPanel from "./decks-panel";
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
@@ -37,7 +39,7 @@ export default async function AdminPage() {
     );
   }
 
-  const settings = await loadTtsSettings();
+  const [settings, decks] = await Promise.all([loadTtsSettings(), getAllDecksForAdmin()]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.24),_transparent_32%),radial-gradient(circle_at_80%_20%,_rgba(14,165,233,0.18),_transparent_28%),linear-gradient(180deg,_#fffaf1_0%,_#f8fafc_100%)] text-slate-950">
@@ -59,6 +61,8 @@ export default async function AdminPage() {
         </section>
 
         <AdminClient initialSettings={toTtsSettingsView(settings)} providers={TTS_PROVIDERS} />
+
+        <DecksPanel decks={decks} />
       </main>
     </div>
   );
