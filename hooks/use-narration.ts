@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 
 import type { NarrationScript, AudioSegmentData } from "../lib/narration";
 
-type NarrationStatus = "idle" | "generating" | "ready" | "error";
+type NarrationStatus = "idle" | "generating" | "generating_audio" | "ready" | "error";
 
 export function useNarration(deckId: string) {
   const [status, setStatus] = useState<NarrationStatus>("idle");
@@ -30,7 +30,7 @@ export function useNarration(deckId: string) {
     }
   }, [deckId]);
 
-  const generateNarration = useCallback(async () => {
+  const generateFullNarration = useCallback(async () => {
     setStatus("generating");
     setError(null);
 
@@ -42,40 +42,59 @@ export function useNarration(deckId: string) {
         throw new Error(data.error || `Request failed (${res.status})`);
       }
 
-      const data: NarrationScript = await res.json();
-      setScript(data);
+      const narrationScript: NarrationScript = await res.json();
+      setScript(narrationScript);
+
+      setStatus("generating_audio");
+
+      const audioController = new AbortController();
+      const audioTimeout = setTimeout(() => audioController.abort(), 180000);
+      let audioRes: Response;
+      try {
+        audioRes = await fetch(`/api/decks/${deckId}/audio`, {
+          method: "POST",
+          signal: audioController.signal,
+        });
+      } finally {
+        clearTimeout(audioTimeout);
+      }
+
+      if (!audioRes.ok) {
+        const data = await audioRes.json().catch(() => ({}));
+        throw new Error(data.error || `Audio generation failed (${audioRes.status})`);
+      }
+
+      const audioData = await audioRes.json().catch(() => ({}));
+      let nextAudioSegments: AudioSegmentData[] | null = null;
+
+      if (Array.isArray(audioData.audioData) && audioData.audioData.length > 0) {
+        nextAudioSegments = audioData.audioData;
+      } else {
+        const fetchRes = await fetch(`/api/decks/${deckId}/narration`);
+        if (fetchRes.ok) {
+          const data = await fetchRes.json();
+          if (Array.isArray(data.audioData) && data.audioData.length > 0) {
+            nextAudioSegments = data.audioData;
+          }
+        }
+      }
+
+      if (!nextAudioSegments) {
+        throw new Error("Audio generation completed, but no playable audio was returned");
+      }
+
+      setAudioSegments(nextAudioSegments);
       setStatus("ready");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to generate narration";
+      const message = err instanceof Error && err.name === "AbortError"
+        ? "Audio generation timed out. Try again with fewer slides or shorter narration."
+        : err instanceof Error
+        ? err.message
+        : "Failed to generate narration";
       setError(message);
       setStatus("error");
     }
   }, [deckId]);
-
-  const generateAudio = useCallback(async () => {
-    if (!script) return;
-
-    try {
-      const res = await fetch(`/api/decks/${deckId}/audio`, { method: "POST" });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Audio generation failed (${res.status})`);
-      }
-
-      await res.json();
-
-      const fetchRes = await fetch(`/api/decks/${deckId}/narration`);
-      if (fetchRes.ok) {
-        const data = await fetchRes.json();
-        if (data.audioData) {
-          setAudioSegments(data.audioData);
-        }
-      }
-    } catch (err) {
-      console.error("Audio generation error:", err);
-    }
-  }, [deckId, script]);
 
   const reset = useCallback(() => {
     setStatus("idle");
@@ -91,8 +110,7 @@ export function useNarration(deckId: string) {
     error,
     hasAudio: audioSegments.length > 0,
     checkExisting,
-    generateNarration,
-    generateAudio,
+    generateFullNarration,
     reset,
   };
 }

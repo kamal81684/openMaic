@@ -5,9 +5,50 @@ import { ObjectId } from "mongodb";
 import { authOptions } from "../../../../../lib/auth";
 import { getDecksCollection } from "../../../../../lib/deck-store";
 import { synthesizeSpeech } from "../../../../../lib/tts";
-import type { NarrationScript, NarrationSegment } from "../../../../../lib/narration";
+import type { NarrationSegment } from "../../../../../lib/narration";
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+const AUDIO_CONCURRENCY = 2;
+
+async function synthesizeSegment(segment: NarrationSegment) {
+  const startedAt = Date.now();
+  console.log(`TTS start slide ${segment.slideIndex} (${segment.text.length} chars)`);
+
+  const result = await synthesizeSpeech(segment.text);
+  console.log(`TTS done slide ${segment.slideIndex} in ${Date.now() - startedAt}ms`);
+
+  return {
+    slideIndex: segment.slideIndex,
+    mimeType: result.mimeType,
+    data: result.audioContent,
+  };
+}
+
+async function processBatch(
+  segments: NarrationSegment[],
+  onError: (slideIndex: number, error: string) => void
+) {
+  const settled = await Promise.allSettled(segments.map((segment) => synthesizeSegment(segment)));
+  const audioData: { slideIndex: number; mimeType: string; data: string }[] = [];
+
+  settled.forEach((result, index) => {
+    const slideIndex = segments[index]?.slideIndex ?? index;
+    if (result.status === "fulfilled") {
+      audioData.push(result.value);
+      return;
+    }
+
+    const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    console.error(`TTS failed slide ${slideIndex}:`, msg);
+    onError(slideIndex, msg);
+  });
+
+  return audioData;
+}
+
+export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.email) {
@@ -36,22 +77,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const audioData: { slideIndex: number; mimeType: string; data: string }[] = [];
+  const errors: { slideIndex: number; error: string }[] = [];
 
-  for (const segment of narration.script) {
-    try {
-      const result = await synthesizeSpeech(segment.text);
-      audioData.push({
-        slideIndex: segment.slideIndex,
-        mimeType: result.mimeType,
-        data: result.audioContent,
-      });
-    } catch (error) {
-      console.error(`TTS failed for slide ${segment.slideIndex}:`, error);
+  for (let i = 0; i < narration.script.length; i += AUDIO_CONCURRENCY) {
+    const batch = narration.script.slice(i, i + AUDIO_CONCURRENCY);
+    const batchAudio = await processBatch(batch, (slideIndex, error) => {
+      errors.push({ slideIndex, error });
+    });
+
+    for (const item of batchAudio) {
+      audioData.push(item);
     }
   }
 
   if (audioData.length === 0) {
-    return NextResponse.json({ error: "All TTS requests failed" }, { status: 500 });
+    return NextResponse.json({ error: "All TTS requests failed", details: errors }, { status: 500 });
   }
 
   await decksCollection.updateOne(
@@ -64,5 +104,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
   );
 
-  return NextResponse.json({ segments: audioData.length, total: narration.script.length });
+  return NextResponse.json({
+    segments: audioData.length,
+    total: narration.script.length,
+    audioData,
+    errors: errors.length > 0 ? errors : undefined,
+  });
 }

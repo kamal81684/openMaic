@@ -6,49 +6,38 @@ import { authOptions } from "../../../../../lib/auth";
 import { getDecksCollection } from "../../../../../lib/deck-store";
 import type { NarrationScript, NarrationSegment } from "../../../../../lib/narration";
 
-function buildPrompt(topic: string, audience: string, tone: string, slides: { index: number; kind: string; title: string; subtitle?: string; bullets: string[]; speakerNotes: string }[]) {
+const GEMINI_TIMEOUT_MS = 60000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 2000;
+
+const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
+
+function buildPrompt(
+  topic: string,
+  audience: string,
+  tone: string,
+  slides: { index: number; kind: string; title: string; subtitle?: string; bullets: string[]; speakerNotes: string }[]
+) {
   const slidesBlock = slides
     .map(
-      (s) => `--- Slide ${s.index} (${s.kind}) ---
+      (s) => `[Slide ${s.index} - ${s.kind}]
 Title: ${s.title}
-${s.subtitle ? `Subtitle: ${s.subtitle}` : ""}
-Bullets:
-${s.bullets.filter(Boolean).map((b) => `  - ${b}`).join("\n")}
-Speaker Notes: ${s.speakerNotes}`
+${s.subtitle ? `Sub: ${s.subtitle}` : ""}${s.bullets.filter(Boolean).map((b) => `\n- ${b}`).join("")}`
     )
     .join("\n\n");
 
-  return `You are a professional presentation narrator. Generate a conversational, engaging narration script for a slide deck.
+  return `You are a TED-quality narrator. Generate ONE continuous conversational narration for these slides. Do NOT read slides verbatim — explain, connect, and expand each idea naturally.
 
-Topic: ${topic}
-Target Audience: ${audience}
-Tone: ${tone}
-
-Here are the slides:
+Topic: ${topic} | Audience: ${audience} | Tone: ${tone}
 
 ${slidesBlock}
 
-Guidelines:
-- Do NOT simply read the slide titles or bullets verbatim.
-- Expand every idea with examples, context, and explanations.
-- Use smooth transitions between slides.
-- Introduce the topic and end with a professional conclusion.
-- Sound conversational, engaging, and educational — like a TED speaker.
-- Estimate realistic durations (average 20-40 seconds per slide segment, longer for dense slides).
-- Each segment's startTime should equal the previous segment's startTime + estimatedDuration.
+Rules: Introduce the topic, explain each slide in order with smooth transitions, end with a conclusion. Sound engaging and educational. Estimate realistic timing (20-40s per segment).
 
-Return ONLY valid JSON matching this schema:
-{
-  "totalDuration": number,
-  "script": [
-    {
-      "slideIndex": 1,
-      "startTime": 0,
-      "estimatedDuration": 30,
-      "text": "Your narration text for slide 1..."
-    }
-  ]
-}`;
+Return JSON: { "totalDuration": number, "script": [{ "slideIndex": number, "startTime": number, "estimatedDuration": number, "text": "narration" }] }`;
 }
 
 function extractJson(text: string) {
@@ -63,7 +52,7 @@ function extractJson(text: string) {
   return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
 }
 
-function normalizeNarration(raw: unknown, slideCount: number): NarrationScript {
+function normalizeNarration(raw: unknown): NarrationScript {
   const parsed = raw as { totalDuration?: number; script?: unknown[] };
 
   const totalDuration = typeof parsed.totalDuration === "number" && parsed.totalDuration > 0 ? parsed.totalDuration : 0;
@@ -115,51 +104,129 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const prompt = buildPrompt(deck.topic, deck.audience, deck.tone, deck.slides);
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" },
-      }),
-    }
-  );
+  console.log("Narration prompt length:", prompt.length, "chars for", deck.slides.length, "slides");
 
-  if (!response.ok) {
-    const message = await response.text();
-    console.error("Gemini narration error:", message);
-    return NextResponse.json({ error: "Gemini request failed", details: message }, { status: response.status });
+  let lastModelError: string | null = null;
+
+  for (const model of GEMINI_MODELS) {
+    console.log(`Trying Gemini model: ${model}`);
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+        console.log(`Retrying ${model} (attempt ${attempt + 1}/${MAX_RETRIES + 1}) in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json" },
+            }),
+            signal: controller.signal,
+          }
+        );
+
+        if (!response.ok) {
+          const message = await response.text();
+
+          let userMessage = `Gemini API returned status ${response.status}`;
+          try {
+            const parsed = JSON.parse(message);
+            if (parsed.error?.message) {
+              userMessage = `Gemini: ${parsed.error.message}`;
+            }
+          } catch {}
+
+          if (response.status === 503 && attempt < MAX_RETRIES) {
+            console.error(`${model} 503, will retry:`, message.slice(0, 300));
+            clearTimeout(timeout);
+            continue;
+          }
+
+          clearTimeout(timeout);
+          lastModelError = userMessage;
+          console.error(`${model} failed:`, userMessage);
+          break;
+        }
+
+        const payload = (await response.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+
+        const text = payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+        if (!text) {
+          const finishReason = (payload.candidates?.[0] as Record<string, unknown>)?.finishReason;
+          clearTimeout(timeout);
+          return NextResponse.json(
+            { error: `Gemini returned empty response (finishReason: ${finishReason ?? "unknown"})` },
+            { status: 500 }
+          );
+        }
+
+        const raw = extractJson(text);
+        const narration = normalizeNarration(raw);
+
+        if (narration.script.length === 0) {
+          clearTimeout(timeout);
+          return NextResponse.json({ error: "Gemini returned an empty narration script" }, { status: 500 });
+        }
+
+        await decksCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              narration: {
+                totalDuration: narration.totalDuration,
+                script: narration.script,
+                createdAt: new Date(),
+              },
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        clearTimeout(timeout);
+        return NextResponse.json(narration);
+      } catch (err) {
+        clearTimeout(timeout);
+
+        if (err instanceof Error && err.name === "AbortError") {
+          if (attempt < MAX_RETRIES) {
+            console.error(`${model} timed out, will retry...`);
+            continue;
+          }
+          lastModelError = `Gemini request timed out after ${GEMINI_TIMEOUT_MS / 1000}s`;
+          console.error(`${model} timed out after all retries`);
+          break;
+        }
+
+        if (attempt < MAX_RETRIES && err instanceof Error && err.message.includes("503")) {
+          console.error(`${model} 503, will retry...`);
+          continue;
+        }
+
+        const msg = err instanceof Error ? err.message : "Unexpected error";
+        lastModelError = msg;
+        console.error(`${model} unexpected error:`, msg);
+        break;
+      }
+    }
   }
 
-  const payload = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  const raw = extractJson(text);
-  const narration = normalizeNarration(raw, deck.slides.length);
-
-  if (narration.script.length === 0) {
-    return NextResponse.json({ error: "Gemini returned an empty narration script" }, { status: 500 });
-  }
-
-  await decksCollection.updateOne(
-    { _id: new ObjectId(id) },
-    {
-      $set: {
-        narration: {
-          totalDuration: narration.totalDuration,
-          script: narration.script,
-          createdAt: new Date(),
-        },
-        updatedAt: new Date(),
-      },
-    }
+  return NextResponse.json(
+    { error: lastModelError || "Gemini API unavailable after all retries. Please try again later." },
+    { status: 503 }
   );
-
-  return NextResponse.json(narration);
 }
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {

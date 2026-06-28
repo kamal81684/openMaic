@@ -20,6 +20,7 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
   const isAutoAdvancing = useRef(false);
 
   const narration = useNarration(deckId);
+  const canGenerateAudio = narration.status === "idle" || (narration.status === "ready" && !narration.hasAudio);
 
   useEffect(() => {
     narration.checkExisting();
@@ -56,10 +57,7 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
   }
 
   async function handleExplainWithAI() {
-    await narration.generateNarration();
-    if (narration.script) {
-      await narration.generateAudio();
-    }
+    await narration.generateFullNarration();
   }
 
   useEffect(() => {
@@ -117,13 +115,13 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
             <span className="text-sm text-slate-500">{topic}</span>
           </div>
           <div className="flex items-center gap-3">
-            {narration.status === "idle" && (
+            {canGenerateAudio && (
               <button
                 type="button"
                 onClick={handleExplainWithAI}
                 className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-2 text-sm font-semibold text-white transition hover:from-cyan-400 hover:to-blue-400"
               >
-                Explain with AI
+                {narration.status === "ready" ? "Generate Voice" : "Explain with AI"}
               </button>
             )}
             {narration.status === "generating" && (
@@ -133,6 +131,15 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 <span className="text-sm text-amber-300">Generating narration...</span>
+              </div>
+            )}
+            {narration.status === "generating_audio" && (
+              <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2">
+                <svg className="h-4 w-4 animate-spin text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-sm text-amber-300">Generating audio narration...</span>
               </div>
             )}
             {narration.status === "error" && (
