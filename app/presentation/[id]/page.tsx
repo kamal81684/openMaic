@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { ObjectId } from "mongodb";
 
 import { authOptions } from "../../../lib/auth";
+import { isAdminEmail } from "../../../lib/admin";
 import { getDecksCollection } from "../../../lib/deck-store";
 
 import PresentationViewer from "./presentation-viewer";
@@ -21,7 +22,11 @@ export default async function PresentationPage({ params }: { params: Promise<{ i
   }
 
   const decksCollection = await getDecksCollection();
-  const deck = await decksCollection.findOne({ _id: new ObjectId(id), userEmail: session.user.email });
+  // Admins can preview any deck; regular users only their own.
+  const deckQuery = isAdminEmail(session.user.email)
+    ? { _id: new ObjectId(id) }
+    : { _id: new ObjectId(id), userEmail: session.user.email };
+  const deck = await decksCollection.findOne(deckQuery);
 
   if (!deck) {
     redirect("/dashboard");

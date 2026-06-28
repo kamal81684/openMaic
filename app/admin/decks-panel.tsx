@@ -145,9 +145,11 @@ export default function DecksPanel({ decks }: { decks: AdminDeckSummary[] }) {
                 />
                 <Link
                   href={`/presentation/${deck.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                 >
-                  Open presentation →
+                  Preview &amp; listen →
                 </Link>
               </div>
             </details>
