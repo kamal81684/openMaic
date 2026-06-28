@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { ObjectId } from "mongodb";
 
 import { authOptions } from "../../../../../lib/auth";
+import { isAdminEmail } from "../../../../../lib/admin";
 import { getDecksCollection } from "../../../../../lib/deck-store";
 import { synthesizeSpeech } from "../../../../../lib/tts";
 import { loadTtsSettings } from "../../../../../lib/tts-settings";
@@ -63,7 +64,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   }
 
   const decksCollection = await getDecksCollection();
-  const deck = await decksCollection.findOne({ _id: new ObjectId(id), userEmail: session.user.email });
+  const query = isAdminEmail(session.user.email)
+    ? { _id: new ObjectId(id) }
+    : { _id: new ObjectId(id), userEmail: session.user.email };
+  const deck = await decksCollection.findOne(query);
 
   if (!deck) {
     return NextResponse.json({ error: "Deck not found" }, { status: 404 });

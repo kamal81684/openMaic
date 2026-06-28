@@ -3,9 +3,17 @@ import { getServerSession } from "next-auth/next";
 import { ObjectId } from "mongodb";
 
 import { authOptions } from "../../../../../lib/auth";
+import { isAdminEmail } from "../../../../../lib/admin";
 import { getDecksCollection } from "../../../../../lib/deck-store";
 import { loadTtsSettings } from "../../../../../lib/tts-settings";
 import type { NarrationScript, NarrationSegment } from "../../../../../lib/narration";
+
+/** Admins can act on any deck; regular users only on their own. */
+function deckQuery(id: string, email: string) {
+  return isAdminEmail(email)
+    ? { _id: new ObjectId(id) }
+    : { _id: new ObjectId(id), userEmail: email };
+}
 
 const GEMINI_TIMEOUT_MS = 60000;
 const MAX_RETRIES = 2;
@@ -97,7 +105,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const decksCollection = await getDecksCollection();
-  const deck = await decksCollection.findOne({ _id: new ObjectId(id), userEmail: session.user.email });
+  const deck = await decksCollection.findOne(deckQuery(id, session.user.email));
 
   if (!deck) {
     return NextResponse.json({ error: "Deck not found" }, { status: 404 });
@@ -244,10 +252,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const decksCollection = await getDecksCollection();
-  const deck = await decksCollection.findOne(
-    { _id: new ObjectId(id), userEmail: session.user.email },
-    { projection: { narration: 1, audioData: 1 } }
-  );
+  const deck = await decksCollection.findOne(deckQuery(id, session.user.email), {
+    projection: { narration: 1, audioData: 1 },
+  });
 
   if (!deck) {
     return NextResponse.json({ error: "Deck not found" }, { status: 404 });

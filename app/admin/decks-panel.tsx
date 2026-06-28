@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { AdminDeckSummary } from "../../lib/deck-store";
+import DeckGenerate from "./deck-generate";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -133,7 +134,15 @@ export default function DecksPanel({ decks }: { decks: AdminDeckSummary[] }) {
                 </div>
               </div>
 
-              <div className="mt-4 flex justify-end">
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                <DeckGenerate
+                  deckId={deck.id}
+                  hasNarration={!!deck.narration}
+                  hasAudio={deck.audioCount > 0}
+                  existingSegments={
+                    deck.narration?.segments.map((s) => ({ slideIndex: s.slideIndex, text: s.text })) ?? []
+                  }
+                />
                 <Link
                   href={`/presentation/${deck.id}`}
                   className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"

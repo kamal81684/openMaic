@@ -79,7 +79,7 @@ export async function synthesizePuter(
 
 /** Synthesize every narration segment via Puter, in order. */
 export async function synthesizePuterSegments(
-  segments: NarrationSegment[],
+  segments: Pick<NarrationSegment, "slideIndex" | "text">[],
   config: PuterConfig
 ): Promise<AudioSegmentData[]> {
   const out: AudioSegmentData[] = [];
