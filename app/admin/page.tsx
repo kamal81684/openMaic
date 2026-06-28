@@ -1,69 +1,70 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth/next";
 
-import { authOptions } from "../../lib/auth";
-import { isAdminEmail } from "../../lib/admin";
-import { loadTtsSettings, toTtsSettingsView, TTS_PROVIDERS } from "../../lib/tts-settings";
+import { loadTtsSettings, TTS_PROVIDERS } from "../../lib/tts-settings";
 import { getAllDecksForAdmin } from "../../lib/deck-store";
+import { getAllUsers } from "../../lib/user-store";
 
-import AdminClient from "./admin-client";
-import DecksPanel from "./decks-panel";
+function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <div className="rounded-3xl border border-white/70 bg-white/80 p-5 shadow-[0_16px_60px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
+      {sub ? <p className="mt-1 text-xs text-slate-500">{sub}</p> : null}
+    </div>
+  );
+}
 
-export default async function AdminPage() {
-  const session = await getServerSession(authOptions);
+export default async function AdminOverviewPage() {
+  const [settings, decks, users] = await Promise.all([
+    loadTtsSettings(),
+    getAllDecksForAdmin(),
+    getAllUsers(),
+  ]);
 
-  if (!session?.user?.email) {
-    redirect("/login?callbackUrl=/admin");
-  }
-
-  if (!isAdminEmail(session.user.email)) {
-    return (
-      <div className="min-h-screen bg-[linear-gradient(180deg,_#fffaf1_0%,_#f8fafc_100%)] text-slate-950">
-        <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-10">
-          <section className="w-full rounded-[32px] border border-white/70 bg-white/85 p-8 text-center shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">OpenMaic</p>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Admins only</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Your account does not have access to the admin panel.
-            </p>
-            <Link
-              href="/dashboard"
-              className="mt-6 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Back to dashboard
-            </Link>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  const [settings, decks] = await Promise.all([loadTtsSettings(), getAllDecksForAdmin()]);
+  const providerLabel =
+    TTS_PROVIDERS.find((p) => p.value === settings.provider)?.label ?? settings.provider;
+  const withNarration = decks.filter((d) => d.narration).length;
+  const adminCount = users.filter((u) => u.isAdmin).length;
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.24),_transparent_32%),radial-gradient(circle_at_80%_20%,_rgba(14,165,233,0.18),_transparent_28%),linear-gradient(180deg,_#fffaf1_0%,_#f8fafc_100%)] text-slate-950">
-      <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="flex flex-col gap-4 rounded-[32px] border border-white/70 bg-white/80 px-6 py-5 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">OpenMaic</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">Admin · Voice settings</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Choose which text-to-speech provider powers narration audio.
-            </p>
-          </div>
-          <Link
-            href="/dashboard"
-            className="self-start rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-          >
-            Back to dashboard
-          </Link>
-        </section>
+    <div className="flex flex-col gap-6">
+      <header className="rounded-[28px] border border-white/70 bg-white/80 px-6 py-5 shadow-[0_24px_80px_rgba(15,23,42,0.1)] backdrop-blur-xl">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Overview</h1>
+        <p className="mt-1 text-sm text-slate-600">Manage voice settings, users, and generated decks.</p>
+      </header>
 
-        <AdminClient initialSettings={toTtsSettingsView(settings)} providers={TTS_PROVIDERS} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Users" value={users.length} sub={`${adminCount} admin${adminCount === 1 ? "" : "s"}`} />
+        <StatCard label="Decks" value={decks.length} sub="across all users" />
+        <StatCard label="With narration" value={withNarration} sub={`of ${decks.length} decks`} />
+        <StatCard label="Voice provider" value={providerLabel} sub="active for narration" />
+      </div>
 
-        <DecksPanel decks={decks} />
-      </main>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Link
+          href="/admin/voice"
+          className="rounded-3xl border border-white/70 bg-white/80 p-5 shadow-[0_16px_60px_rgba(15,23,42,0.06)] backdrop-blur-xl transition hover:border-slate-300"
+        >
+          <p className="text-sm font-semibold text-slate-900">Voice settings →</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Switch TTS provider and test the connection.
+          </p>
+        </Link>
+        <Link
+          href="/admin/users"
+          className="rounded-3xl border border-white/70 bg-white/80 p-5 shadow-[0_16px_60px_rgba(15,23,42,0.06)] backdrop-blur-xl transition hover:border-slate-300"
+        >
+          <p className="text-sm font-semibold text-slate-900">Manage users →</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Create accounts and remove users.</p>
+        </Link>
+        <Link
+          href="/admin/decks"
+          className="rounded-3xl border border-white/70 bg-white/80 p-5 shadow-[0_16px_60px_rgba(15,23,42,0.06)] backdrop-blur-xl transition hover:border-slate-300"
+        >
+          <p className="text-sm font-semibold text-slate-900">Browse decks →</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">View slides and narration for every deck.</p>
+        </Link>
+      </div>
     </div>
   );
 }
