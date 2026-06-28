@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 
 import type { NarrationScript, AudioSegmentData } from "../lib/narration";
+import { synthesizePuterSegments, type PuterConfig } from "../lib/puter-tts";
 
 type NarrationStatus = "idle" | "generating" | "generating_audio" | "ready" | "error";
 
@@ -20,6 +21,25 @@ export function useNarration(deckId: string) {
       const data = await res.json();
       if (data.narration?.script?.length > 0) {
         setScript(data.narration);
+
+        // Puter audio isn't stored server-side — synthesize it in the browser.
+        if (data.ttsProvider === "puter" && (!data.audioData || data.audioData.length === 0)) {
+          setStatus("generating_audio");
+          try {
+            const segments = await synthesizePuterSegments(
+              data.narration.script,
+              (data.puterConfig ?? {}) as PuterConfig
+            );
+            if (segments.length === 0) throw new Error("Puter returned no audio");
+            setAudioSegments(segments);
+            setStatus("ready");
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to generate Puter audio");
+            setStatus("error");
+          }
+          return true;
+        }
+
         setAudioSegments(data.audioData ?? []);
         setStatus("ready");
         return true;
@@ -65,6 +85,21 @@ export function useNarration(deckId: string) {
       }
 
       const audioData = await audioRes.json().catch(() => ({}));
+
+      // Puter: the server defers synthesis to the browser.
+      if (audioData.clientSide) {
+        const segments = await synthesizePuterSegments(
+          narrationScript.script,
+          (audioData.puterConfig ?? {}) as PuterConfig
+        );
+        if (segments.length === 0) {
+          throw new Error("Puter generated no playable audio");
+        }
+        setAudioSegments(segments);
+        setStatus("ready");
+        return;
+      }
+
       let nextAudioSegments: AudioSegmentData[] | null = null;
 
       if (Array.isArray(audioData.audioData) && audioData.audioData.length > 0) {

@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 
 import { authOptions } from "../../../../../lib/auth";
 import { getDecksCollection } from "../../../../../lib/deck-store";
+import { loadTtsSettings } from "../../../../../lib/tts-settings";
 import type { NarrationScript, NarrationSegment } from "../../../../../lib/narration";
 
 const GEMINI_TIMEOUT_MS = 60000;
@@ -252,8 +253,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Deck not found" }, { status: 404 });
   }
 
+  // Tell the client which TTS provider is active so it can synthesize Puter audio
+  // in the browser (Puter has no server-side synthesis).
+  const settings = await loadTtsSettings();
+
   return NextResponse.json({
     narration: deck.narration ?? null,
     audioData: deck.audioData ?? [],
+    ttsProvider: settings.provider,
+    puterConfig: settings.provider === "puter" ? settings.puter : undefined,
   });
 }

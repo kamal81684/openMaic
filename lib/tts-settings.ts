@@ -1,8 +1,16 @@
 import { mongoClientPromise } from "./mongodb";
 
-export type TtsProvider = "vibevoice" | "elevenlabs" | "sarvam" | "google";
+export type TtsProvider = "puter" | "vibevoice" | "elevenlabs" | "sarvam" | "google";
+
+/** Puter runs in the browser (no API key) and is the free default fallback. */
+export const PUTER_PROVIDER: TtsProvider = "puter";
 
 export const TTS_PROVIDERS: { value: TtsProvider; label: string; description: string }[] = [
+  {
+    value: "puter",
+    label: "Puter (free · no setup)",
+    description: "Free, unlimited browser-based TTS. No API key. Used by default.",
+  },
   {
     value: "vibevoice",
     label: "VibeVoice (self-hosted)",
@@ -27,6 +35,7 @@ export const TTS_PROVIDERS: { value: TtsProvider; label: string; description: st
 
 export type TtsSettings = {
   provider: TtsProvider;
+  puter: { engine: string; language: string; voice: string };
   vibevoice: { serverUrl: string };
   elevenlabs: { apiKey: string; voiceId: string; modelId: string };
   sarvam: { apiKey: string; speaker: string; targetLanguageCode: string; model: string };
@@ -36,6 +45,7 @@ export type TtsSettings = {
 /** Settings safe to send to the browser — secrets are replaced with a boolean flag. */
 export type TtsSettingsView = {
   provider: TtsProvider;
+  puter: { engine: string; language: string; voice: string };
   vibevoice: { serverUrl: string };
   elevenlabs: { apiKeySet: boolean; voiceId: string; modelId: string };
   sarvam: { apiKeySet: boolean; speaker: string; targetLanguageCode: string; model: string };
@@ -47,7 +57,9 @@ const COLLECTION = "appSettings";
 
 export function defaultTtsSettings(): TtsSettings {
   return {
-    provider: "vibevoice",
+    // Puter is free and needs no setup, so it's the default when nothing is configured.
+    provider: "puter",
+    puter: { engine: "neural", language: "en-US", voice: "" },
     vibevoice: { serverUrl: process.env.VIBEVOICE_SERVER_URL || "" },
     elevenlabs: { apiKey: "", voiceId: "21m00Tcm4TlvDq8ikWAM", modelId: "eleven_multilingual_v2" },
     sarvam: { apiKey: "", speaker: "anushka", targetLanguageCode: "en-IN", model: "bulbul:v2" },
@@ -71,6 +83,7 @@ export async function loadTtsSettings(): Promise<TtsSettings> {
 
   return {
     provider: (doc.provider as TtsProvider) ?? defaults.provider,
+    puter: { ...defaults.puter, ...(doc.puter ?? {}) },
     vibevoice: { ...defaults.vibevoice, ...(doc.vibevoice ?? {}) },
     elevenlabs: { ...defaults.elevenlabs, ...(doc.elevenlabs ?? {}) },
     sarvam: { ...defaults.sarvam, ...(doc.sarvam ?? {}) },
@@ -103,6 +116,7 @@ export function isValidProvider(value: unknown): value is TtsProvider {
  */
 export function mergeTtsSettings(current: TtsSettings, body: Record<string, unknown>): TtsSettings {
   const provider = isValidProvider(body.provider) ? body.provider : current.provider;
+  const puter = (body.puter ?? {}) as Record<string, unknown>;
   const vibevoice = (body.vibevoice ?? {}) as Record<string, unknown>;
   const elevenlabs = (body.elevenlabs ?? {}) as Record<string, unknown>;
   const sarvam = (body.sarvam ?? {}) as Record<string, unknown>;
@@ -115,6 +129,11 @@ export function mergeTtsSettings(current: TtsSettings, body: Record<string, unkn
 
   return {
     provider,
+    puter: {
+      engine: str(puter.engine, current.puter.engine).trim(),
+      language: str(puter.language, current.puter.language).trim(),
+      voice: str(puter.voice, current.puter.voice).trim(),
+    },
     vibevoice: {
       serverUrl: str(vibevoice.serverUrl, current.vibevoice.serverUrl).trim(),
     },
@@ -140,6 +159,7 @@ export function mergeTtsSettings(current: TtsSettings, body: Record<string, unkn
 export function toTtsSettingsView(settings: TtsSettings): TtsSettingsView {
   return {
     provider: settings.provider,
+    puter: { ...settings.puter },
     vibevoice: { serverUrl: settings.vibevoice.serverUrl },
     elevenlabs: {
       apiKeySet: Boolean(settings.elevenlabs.apiKey),

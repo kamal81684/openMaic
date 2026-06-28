@@ -212,6 +212,9 @@ function cacheKeyFor(settings: TtsSettings, text: string): string {
 // Used by both synthesizeSpeech and the admin "test connection" endpoint.
 export async function synthesizeWithSettings(settings: TtsSettings, text: string): Promise<SynthesisResult> {
   switch (settings.provider) {
+    case "puter":
+      // Puter TTS runs in the browser (no API key); it can't be synthesized server-side.
+      throw new Error("Puter TTS is generated in the browser and has no server-side synthesis.");
     case "elevenlabs":
       return synthesizeElevenLabs(text, settings.elevenlabs);
     case "sarvam":

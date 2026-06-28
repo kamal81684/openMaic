@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb";
 import { authOptions } from "../../../../../lib/auth";
 import { getDecksCollection } from "../../../../../lib/deck-store";
 import { synthesizeSpeech } from "../../../../../lib/tts";
+import { loadTtsSettings } from "../../../../../lib/tts-settings";
 import type { NarrationSegment } from "../../../../../lib/narration";
 
 export const runtime = "nodejs";
@@ -74,6 +75,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   if (!narration || !narration.script || narration.script.length === 0) {
     return NextResponse.json({ error: "No narration script found. Generate narration first." }, { status: 400 });
+  }
+
+  // Puter synthesizes in the browser — there's nothing to do server-side.
+  const settings = await loadTtsSettings();
+  if (settings.provider === "puter") {
+    return NextResponse.json({ clientSide: true, provider: "puter", puterConfig: settings.puter });
   }
 
   const audioData: { slideIndex: number; mimeType: string; data: string }[] = [];

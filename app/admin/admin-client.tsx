@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 
 import type { TtsProvider, TtsSettingsView } from "../../lib/tts-settings";
+import { synthesizePuter } from "../../lib/puter-tts";
 
 type ProviderMeta = { value: TtsProvider; label: string; description: string };
 
@@ -49,7 +50,7 @@ export default function AdminClient({ initialSettings, providers }: AdminClientP
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
 
-  type ConfigSection = "vibevoice" | "elevenlabs" | "sarvam" | "google";
+  type ConfigSection = "puter" | "vibevoice" | "elevenlabs" | "sarvam" | "google";
 
   function update<K extends ConfigSection>(section: K, patch: Partial<TtsSettingsView[K]>) {
     setSettings((prev) => ({ ...prev, [section]: { ...prev[section], ...patch } }));
@@ -58,6 +59,11 @@ export default function AdminClient({ initialSettings, providers }: AdminClientP
   function buildPayload() {
     return {
       provider: settings.provider,
+      puter: {
+        engine: settings.puter.engine,
+        language: settings.puter.language,
+        voice: settings.puter.voice,
+      },
       vibevoice: { serverUrl: settings.vibevoice.serverUrl },
       elevenlabs: {
         apiKey: keys.elevenlabs,
@@ -81,6 +87,27 @@ export default function AdminClient({ initialSettings, providers }: AdminClientP
   async function handleTest() {
     setIsTesting(true);
     setTestStatus({ type: "idle", message: "" });
+
+    // Puter runs in the browser, so test it client-side instead of on the server.
+    if (settings.provider === "puter") {
+      try {
+        const started = Date.now();
+        const { mimeType, data } = await synthesizePuter("Connection test.", settings.puter);
+        const bytes = Math.round((data.length * 3) / 4);
+        setTestStatus({
+          type: "ok",
+          message: `Connected — generated ${bytes.toLocaleString()} bytes of ${mimeType} audio in ${
+            Date.now() - started
+          }ms (in your browser).`,
+        });
+      } catch (err) {
+        setTestStatus({ type: "error", message: err instanceof Error ? err.message : "Puter test failed" });
+      } finally {
+        setIsTesting(false);
+      }
+      return;
+    }
+
     try {
       const res = await fetch("/api/admin/settings/test", {
         method: "POST",
@@ -173,6 +200,44 @@ export default function AdminClient({ initialSettings, providers }: AdminClientP
       </div>
 
       <div className="h-px bg-slate-200/70" />
+
+      {provider === "puter" ? (
+        <div className="space-y-4">
+          <h3 className="text-base font-semibold text-slate-900">Puter (free · no setup)</h3>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-700">
+            Puter provides free, unlimited text-to-speech that runs in the viewer&apos;s browser — no API key
+            required. This is the default when no other provider is configured. The options below are optional.
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Engine">
+              <select
+                className={inputClass}
+                value={settings.puter.engine}
+                onChange={(e) => update("puter", { engine: e.target.value })}
+              >
+                <option value="standard">standard</option>
+                <option value="neural">neural</option>
+                <option value="generative">generative</option>
+              </select>
+            </Field>
+            <Field label="Language" hint="e.g. en-US">
+              <input
+                className={inputClass}
+                value={settings.puter.language}
+                onChange={(e) => update("puter", { language: e.target.value })}
+              />
+            </Field>
+            <Field label="Voice" hint="optional, e.g. Joanna">
+              <input
+                className={inputClass}
+                placeholder="default"
+                value={settings.puter.voice}
+                onChange={(e) => update("puter", { voice: e.target.value })}
+              />
+            </Field>
+          </div>
+        </div>
+      ) : null}
 
       {provider === "vibevoice" ? (
         <div className="space-y-4">
