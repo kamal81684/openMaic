@@ -36,6 +36,20 @@ export default function LoginForm({ callbackUrl }: LoginFormProps) {
     window.location.assign(result?.url ?? callbackUrl);
   }
 
+  async function handleGoogleSignIn() {
+    setIsLoading(true);
+    setError("");
+
+    const result = await signIn("google", {
+      callbackUrl,
+    });
+
+    if (result?.error) {
+      setError("Unable to continue with Google");
+      setIsLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.2),_transparent_32%),linear-gradient(180deg,_#eff6ff_0%,_#ffffff_100%)] text-slate-950">
       <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-10">
@@ -46,7 +60,30 @@ export default function LoginForm({ callbackUrl }: LoginFormProps) {
             Continue to your prompt workspace after authentication.
           </p>
 
-          <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+          <div className="mt-8 space-y-4">
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              className="flex w-full items-center justify-center gap-3 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+              disabled={isLoading}
+            >
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24">
+                <path
+                  fill="#EA4335"
+                  d="M12 10.2v3.95h5.53c-.24 1.31-1.46 3.84-5.53 3.84-3.33 0-6.05-2.76-6.05-6.16S8.67 5.67 12 5.67c1.9 0 3.18.81 3.91 1.5l2.66-2.56C16.85 3.06 14.67 2 12 2 6.48 2 2 6.48 2 12s4.48 10 10 10c5.73 0 9.54-4.03 9.54-9.71 0-.65-.07-1.14-.15-1.63H12Z"
+                />
+              </svg>
+              Continue with Google
+            </button>
+
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-slate-200" />
+              <span className="text-xs font-medium uppercase tracking-[0.22em] text-slate-400">or</span>
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+          </div>
+
+          <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">Email</span>
               <input

@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
+import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 
 import { mongoClientPromise } from "./mongodb";
@@ -16,6 +17,10 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+    }),
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -52,6 +57,36 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
+  callbacks: {
+    async signIn({ user, account }) {
+      if (account?.provider !== "google" || !user.email) {
+        return true;
+      }
+
+      const client = await mongoClientPromise;
+      const usersCollection = client.db().collection("users");
+      const now = new Date();
+
+      await usersCollection.updateOne(
+        { email: user.email.toLowerCase() },
+        {
+          $set: {
+            name: user.name ?? user.email,
+            image: user.image ?? null,
+            provider: "google",
+            lastLoginAt: now,
+          },
+          $setOnInsert: {
+            email: user.email.toLowerCase(),
+            createdAt: now,
+          },
+        },
+        { upsert: true },
+      );
+
+      return true;
+    },
+  },
   pages: {
     signIn: "/login",
   },
