@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { mongoClientPromise } from "./mongodb";
 import type { GeneratedSlide, GenerateDeckInput } from "./slide-generator";
 import type { NarrationSegment } from "./narration";
+import type { LearningProgress } from "./learning-progress";
 import type { QuizResponse } from "./quiz";
 
 export type StoredDeck = GenerateDeckInput & {
@@ -25,6 +26,7 @@ export type StoredDeck = GenerateDeckInput & {
     mimeType: string;
     data: string;
   }[];
+  learningProgress?: LearningProgress;
   quiz?: QuizResponse;
 };
 
@@ -40,6 +42,7 @@ export type DeckSummary = {
   pdfGenerated?: boolean;
   pdfGeneratedAt?: string | null;
   hasNarration?: boolean;
+  learningProgress?: LearningProgress;
 };
 
 export async function getDecksCollection() {
@@ -145,5 +148,14 @@ export function toDeckSummary(deck: StoredDeck): DeckSummary {
     pdfGenerated: deck.pdfGenerated,
     pdfGeneratedAt: deck.pdfGeneratedAt?.toISOString() ?? null,
     hasNarration: !!deck.narration,
+    learningProgress: deck.learningProgress
+      ? {
+          currentSlideIndex: deck.learningProgress.currentSlideIndex,
+          watchedSeconds: deck.learningProgress.watchedSeconds,
+          completedPercent: deck.learningProgress.completedPercent,
+          notes: deck.learningProgress.notes,
+          updatedAt: deck.learningProgress.updatedAt,
+        }
+      : undefined,
   };
 }

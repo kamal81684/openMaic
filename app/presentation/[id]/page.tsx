@@ -36,6 +36,7 @@ export default async function PresentationPage({ params }: { params: Promise<{ i
     <PresentationViewer
       deckId={id}
       topic={deck.topic}
+      initialLearningProgress={deck.learningProgress ?? null}
       slides={deck.slides.map((s) => ({
         index: s.index,
         kind: s.kind,

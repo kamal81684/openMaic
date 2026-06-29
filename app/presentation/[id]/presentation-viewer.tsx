@@ -4,22 +4,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { GeneratedSlide } from "../../../lib/slide-generator";
+import type { LearningProgress } from "../../../lib/learning-progress";
 import { useNarration } from "../../../hooks/use-narration";
 import NarrationPlayer from "../../../components/narration/narration-player";
+import SlideAiChat from "./slide-ai-chat";
 
 type Props = {
   deckId: string;
   topic: string;
   slides: GeneratedSlide[];
+  initialLearningProgress: LearningProgress | null;
 };
 
-export default function PresentationViewer({ deckId, topic, slides }: Props) {
+export default function PresentationViewer({ deckId, topic, slides, initialLearningProgress }: Props) {
   const router = useRouter();
-  const [currentSlide, setCurrentSlide] = useState(0);
+  const [currentSlide, setCurrentSlide] = useState(initialLearningProgress?.currentSlideIndex ?? 0);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [quizStatus, setQuizStatus] = useState<"idle" | "loading" | "error">("idle");
   const [quizError, setQuizError] = useState<string | null>(null);
+  const [notes, setNotes] = useState(initialLearningProgress?.notes ?? "");
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [notesStatus, setNotesStatus] = useState<string | null>(null);
   const isAutoAdvancing = useRef(false);
+  const watchedSecondsRef = useRef(initialLearningProgress?.watchedSeconds ?? 0);
 
   const narration = useNarration(deckId);
   const { checkExisting } = narration;
@@ -42,6 +49,28 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
     setCurrentSlide(index);
   }, []);
 
+  useEffect(() => {
+    const enterAt = Date.now();
+
+    return () => {
+      const exitedAt = Date.now();
+      const elapsedSeconds = Math.max(0, (exitedAt - enterAt) / 1000);
+      watchedSecondsRef.current += elapsedSeconds;
+
+      void fetch(`/api/decks/${deckId}/progress`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentSlideIndex: currentSlide,
+          watchedSeconds: watchedSecondsRef.current,
+          totalSlides: slides.length,
+        }),
+      });
+    };
+  }, [currentSlide, deckId, slides.length]);
+
   const handleBack = useCallback(async () => {
     setIsFinalizing(true);
     try {
@@ -61,6 +90,37 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
 
   async function handleExplainWithAI() {
     await narration.generateFullNarration();
+  }
+
+  async function handleSaveNotes() {
+    setIsSavingNotes(true);
+    setNotesStatus(null);
+
+    try {
+      const response = await fetch(`/api/decks/${deckId}/progress`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentSlideIndex: currentSlide,
+          watchedSeconds: watchedSecondsRef.current,
+          notes,
+          totalSlides: slides.length,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to save notes (${response.status})`);
+      }
+
+      setNotesStatus("Saved");
+    } catch (error) {
+      setNotesStatus(error instanceof Error ? error.message : "Failed to save notes");
+    } finally {
+      setIsSavingNotes(false);
+    }
   }
 
   async function handleGenerateQuiz() {
@@ -214,63 +274,99 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
         )}
       </header>
 
-      <main className="flex flex-1 items-center justify-center p-8">
-        <div className="flex w-full max-w-6xl flex-col gap-6">
-          <div className="flex items-center gap-6">
-            <button
-              type="button"
-              onClick={goPrev}
-              disabled={currentSlide === 0}
-              className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
-              aria-label="Previous slide"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
+      <main className="flex flex-1 justify-center p-6 lg:p-8">
+        <div className="flex w-full max-w-[1400px] flex-col gap-6 xl:flex-row">
+          <div className="flex min-w-0 flex-1 flex-col gap-6">
+            <section className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-2xl">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300/80">Notes</p>
+                  <h2 className="mt-2 text-xl font-bold text-white">Store quick notes for this deck</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Keep your own summary, reminders, or questions right here above the slide.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveNotes}
+                  disabled={isSavingNotes}
+                  className="rounded-full border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20 disabled:opacity-60"
+                >
+                  {isSavingNotes ? "Saving..." : "Save Notes"}
+                </button>
+              </div>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Write a quick note about this topic..."
+                rows={3}
+                className="mt-4 w-full resize-none rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-amber-400/40"
+              />
+              {notesStatus ? <p className="mt-2 text-xs text-slate-400">{notesStatus}</p> : null}
+            </section>
 
-            <div className="flex-1 rounded-3xl border border-white/10 bg-gradient-to-br from-slate-800 to-slate-900 p-12 shadow-2xl">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wider text-slate-400">
-                  {slide.kind}
-                </span>
-                <span className="text-xs text-slate-500">Slide {slide.index}</span>
+            <div className="flex items-center gap-6">
+              <button
+                type="button"
+                onClick={goPrev}
+                disabled={currentSlide === 0}
+                className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
+                aria-label="Previous slide"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+
+              <div className="flex-1 rounded-3xl border border-white/10 bg-gradient-to-br from-slate-800 to-slate-900 p-12 shadow-2xl">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wider text-slate-400">
+                    {slide.kind}
+                  </span>
+                  <span className="text-xs text-slate-500">Slide {slide.index}</span>
+                </div>
+
+                <h1 className="text-4xl font-bold tracking-tight text-white">{slide.title}</h1>
+
+                {slide.subtitle ? <p className="mt-4 text-xl text-slate-300">{slide.subtitle}</p> : null}
+
+                <ul className="mt-8 space-y-4">
+                  {slide.bullets.filter(Boolean).map((bullet) => (
+                    <li key={bullet} className="flex gap-3 text-lg text-slate-200">
+                      <span className="mt-2 h-2 w-2 flex-none rounded-full bg-cyan-400" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {slide.speakerNotes ? (
+                  <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Speaker Notes</p>
+                    <p className="mt-2 text-sm text-slate-400">{slide.speakerNotes}</p>
+                  </div>
+                ) : null}
               </div>
 
-              <h1 className="text-4xl font-bold tracking-tight text-white">{slide.title}</h1>
-
-              {slide.subtitle ? <p className="mt-4 text-xl text-slate-300">{slide.subtitle}</p> : null}
-
-              <ul className="mt-8 space-y-4">
-                {slide.bullets.filter(Boolean).map((bullet) => (
-                  <li key={bullet} className="flex gap-3 text-lg text-slate-200">
-                    <span className="mt-2 h-2 w-2 flex-none rounded-full bg-cyan-400" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-
-              {slide.speakerNotes ? (
-                <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Speaker Notes</p>
-                  <p className="mt-2 text-sm text-slate-400">{slide.speakerNotes}</p>
-                </div>
-              ) : null}
+              <button
+                type="button"
+                onClick={goNext}
+                disabled={currentSlide === slides.length - 1}
+                className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
+                aria-label="Next slide"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={currentSlide === slides.length - 1}
-              className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
-              aria-label="Next slide"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </button>
           </div>
 
+          <SlideAiChat
+            deckId={deckId}
+            topic={topic}
+            currentSlideIndex={currentSlide}
+            slide={slide}
+          />
         </div>
       </main>
 
