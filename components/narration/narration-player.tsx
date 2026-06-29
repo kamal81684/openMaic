@@ -16,26 +16,23 @@ type Props = {
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-export default function NarrationPlayer({ script, audioSegments, currentSlideIndex, slides, onSlideChange, onReset }: Props) {
+export default function NarrationPlayer({ script, audioSegments, currentSlideIndex: _currentSlideIndex, slides, onSlideChange, onReset }: Props) {
   const [speed, setSpeed] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [audioReady, setAudioReady] = useState(false);
 
   const sync = useAudioSync({
     script,
     audioSegments,
     onSlideChange,
   });
+  const { setPlaybackRate } = sync;
+  void _currentSlideIndex;
+
+  const audioReady = audioSegments.length > 0;
 
   useEffect(() => {
-    if (audioSegments.length > 0) {
-      setAudioReady(true);
-    }
-  }, [audioSegments]);
-
-  useEffect(() => {
-    sync.setPlaybackRate(speed);
-  }, [speed, sync.setPlaybackRate]);
+    setPlaybackRate(speed);
+  }, [speed, setPlaybackRate]);
 
   function formatTime(seconds: number) {
     const m = Math.floor(seconds / 60);

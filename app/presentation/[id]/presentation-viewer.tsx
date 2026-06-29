@@ -17,14 +17,17 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
   const router = useRouter();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [quizStatus, setQuizStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [quizError, setQuizError] = useState<string | null>(null);
   const isAutoAdvancing = useRef(false);
 
   const narration = useNarration(deckId);
+  const { checkExisting } = narration;
   const canGenerateAudio = narration.status === "idle" || (narration.status === "ready" && !narration.hasAudio);
 
   useEffect(() => {
-    narration.checkExisting();
-  }, []);
+    checkExisting();
+  }, [checkExisting]);
 
   const goNext = useCallback(() => {
     setCurrentSlide((prev) => Math.min(prev + 1, slides.length - 1));
@@ -39,14 +42,14 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
     setCurrentSlide(index);
   }, []);
 
-  async function handleBack() {
+  const handleBack = useCallback(async () => {
     setIsFinalizing(true);
     try {
       await fetch(`/api/decks/${deckId}/finalize`, { method: "POST" });
     } catch {
     }
     router.push("/dashboard");
-  }
+  }, [deckId, router]);
 
   function handleNarrationSlideChange(slideIndex: number) {
     isAutoAdvancing.current = true;
@@ -58,6 +61,24 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
 
   async function handleExplainWithAI() {
     await narration.generateFullNarration();
+  }
+
+  async function handleGenerateQuiz() {
+    setQuizStatus("loading");
+    setQuizError(null);
+
+    try {
+      const response = await fetch(`/api/decks/${deckId}/quiz`, { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Quiz generation failed (${response.status})`);
+      }
+
+      router.push(`/presentation/${deckId}/quiz`);
+    } catch (error) {
+      setQuizError(error instanceof Error ? error.message : "Failed to generate quiz");
+      setQuizStatus("error");
+    }
   }
 
   useEffect(() => {
@@ -87,7 +108,7 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentSlide, slides.length, narration.status, narration.hasAudio, narration.audioSegments.length, narration.script, goNext, goPrev]);
+  }, [currentSlide, handleBack, slides.length, narration.status, narration.hasAudio, narration.audioSegments.length, narration.script, goNext, goPrev]);
 
   const slide = slides[currentSlide];
 
@@ -124,6 +145,14 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
                 {narration.status === "ready" ? "Generate Voice" : "Explain with AI"}
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleGenerateQuiz}
+              disabled={quizStatus === "loading"}
+              className="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-5 py-2 text-sm font-semibold text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:opacity-60"
+            >
+              {quizStatus === "loading" ? "Creating Quiz..." : "Generate Quiz"}
+            </button>
             {narration.status === "generating" && (
               <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2">
                 <svg className="h-4 w-4 animate-spin text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -154,6 +183,18 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
                 </button>
               </div>
             )}
+            {quizStatus === "error" && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-red-400">{quizError || "Quiz generation failed"}</span>
+                <button
+                  type="button"
+                  onClick={handleGenerateQuiz}
+                  className="rounded-full border border-red-500/30 px-3 py-1.5 text-xs text-red-400 transition hover:bg-red-500/10"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             <span className="text-sm text-slate-400">
               {currentSlide + 1} / {slides.length}
             </span>
@@ -174,57 +215,62 @@ export default function PresentationViewer({ deckId, topic, slides }: Props) {
       </header>
 
       <main className="flex flex-1 items-center justify-center p-8">
-        <div className="flex w-full max-w-5xl items-center gap-6">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={currentSlide === 0}
-            className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
-            aria-label="Previous slide"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
+        <div className="flex w-full max-w-6xl flex-col gap-6">
+          <div className="flex items-center gap-6">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={currentSlide === 0}
+              className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
+              aria-label="Previous slide"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
 
-          <div className="flex-1 rounded-3xl border border-white/10 bg-gradient-to-br from-slate-800 to-slate-900 p-12 shadow-2xl">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wider text-slate-400">
-                {slide.kind}
-              </span>
-              <span className="text-xs text-slate-500">Slide {slide.index}</span>
+            <div className="flex-1 rounded-3xl border border-white/10 bg-gradient-to-br from-slate-800 to-slate-900 p-12 shadow-2xl">
+              <div className="mb-4 flex items-center gap-3">
+                <span className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wider text-slate-400">
+                  {slide.kind}
+                </span>
+                <span className="text-xs text-slate-500">Slide {slide.index}</span>
+              </div>
+
+              <h1 className="text-4xl font-bold tracking-tight text-white">{slide.title}</h1>
+
+              {slide.subtitle ? <p className="mt-4 text-xl text-slate-300">{slide.subtitle}</p> : null}
+
+              <ul className="mt-8 space-y-4">
+                {slide.bullets.filter(Boolean).map((bullet) => (
+                  <li key={bullet} className="flex gap-3 text-lg text-slate-200">
+                    <span className="mt-2 h-2 w-2 flex-none rounded-full bg-cyan-400" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {slide.speakerNotes ? (
+                <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Speaker Notes</p>
+                  <p className="mt-2 text-sm text-slate-400">{slide.speakerNotes}</p>
+                </div>
+              ) : null}
             </div>
 
-            <h1 className="text-4xl font-bold tracking-tight text-white">{slide.title}</h1>
-
-            {slide.subtitle ? (
-              <p className="mt-4 text-xl text-slate-300">{slide.subtitle}</p>
-            ) : null}
-
-            <ul className="mt-8 space-y-4">
-              {slide.bullets.filter(Boolean).map((bullet) => (
-                <li key={bullet} className="flex gap-3 text-lg text-slate-200">
-                  <span className="mt-2 h-2 w-2 flex-none rounded-full bg-cyan-400" />
-                  <span>{bullet}</span>
-                </li>
-              ))}
-            </ul>
-
-            {slide.speakerNotes ? (
-              <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Speaker Notes</p>
-                <p className="mt-2 text-sm text-slate-400">{slide.speakerNotes}</p>
-              </div>
-            ) : null}
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={currentSlide === slides.length - 1}
+              className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
+              aria-label="Next slide"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={currentSlide === slides.length - 1}
-            className="flex h-12 w-12 flex-none items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:opacity-30"
-            aria-label="Next slide"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
-          </button>
         </div>
       </main>
 

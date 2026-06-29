@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { mongoClientPromise } from "./mongodb";
 import type { GeneratedSlide, GenerateDeckInput } from "./slide-generator";
 import type { NarrationSegment } from "./narration";
+import type { QuizResponse } from "./quiz";
 
 export type StoredDeck = GenerateDeckInput & {
   _id?: ObjectId;
@@ -24,6 +25,7 @@ export type StoredDeck = GenerateDeckInput & {
     mimeType: string;
     data: string;
   }[];
+  quiz?: QuizResponse;
 };
 
 export type DeckSummary = {
